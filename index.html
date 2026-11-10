@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RePackagd</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</body>
+</html>
+<style>
+/* Layout: single working column; a marquee header, a tab strip, one panel at a time. Duel cards side by side like two ticket stubs. */
+:root {
+  --bg: #eceff3; --surface: #ffffff; --sunk: #e2e6ec; --ink: #16202b; --muted: #5a6677; --line: #d1d7df;
+  --accent: #c27410; --accent-soft: #f6e6cc; --on-accent: #1d1305; --up: #2c7a4c; --down: #b23e3a;
+  --display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10151c; --surface: #19202a; --sunk: #141a22; --ink: #e6eaf0; --muted: #94a0b1; --line: #2a3442;
+  --accent: #efa23a; --accent-soft: #3a2a12; --on-accent: #1d1305; --up: #5fbf86; --down: #e4807a; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #10151c; --surface: #19202a; --sunk: #141a22; --ink: #e6eaf0; --muted: #94a0b1; --line: #2a3442;
+  --accent: #efa23a; --accent-soft: #3a2a12; --on-accent: #1d1305; --up: #5fbf86; --down: #e4807a; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 860px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 48px; display: grid; gap: 18px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+h1 { font-size: clamp(2.4rem, 7vw, 3.4rem); line-height: 0.95; font-weight: 800; text-transform: uppercase; }
+h1 span { color: var(--accent); }
+h2 { font-size: 1.6rem; font-weight: 700; text-transform: uppercase; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 0.86rem; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; }
+.stars { color: var(--accent); letter-spacing: 0.05em; white-space: nowrap; }
+
+header.top { display: grid; gap: 12px; }
+.loader { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.drop { border: 1.5px dashed var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; background: var(--surface); }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop p { min-width: 0; flex: 1 1 260px; }
+.banner { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--sunk); color: var(--muted); }
+.chip.example { background: var(--accent-soft); color: var(--ink); }
+.err { color: var(--down); font-size: 0.88rem; }
+
+button, .btn { font: inherit; font-weight: 600; font-size: 0.9rem; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 8px 14px; cursor: pointer; }
+button:hover, .btn:hover { border-color: var(--muted); }
+button:focus-visible, .btn:focus-within, input:focus-visible, select:focus-visible, textarea:focus-visible, .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary, .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); padding-inline: 8px; }
+button.ghost:hover { color: var(--ink); }
+button:disabled { opacity: 0.45; cursor: default; }
+.btn input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.btn { position: relative; display: inline-block; }
+
+nav.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav.tabs button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 10px 12px; border-bottom: 3px solid transparent; white-space: nowrap; }
+nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+nav.tabs .count { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); margin-left: 4px; }
+
+.panel { display: grid; gap: 16px; }
+.intro { display: grid; gap: 4px; max-width: 65ch; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.row.between { justify-content: space-between; }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+label.check { display: inline-flex; gap: 6px; align-items: center; font-size: 0.88rem; cursor: pointer; }
+input[type="text"], input[type="number"], select, textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; min-width: 0; }
+
+.progress { height: 6px; background: var(--sunk); border-radius: 99px; overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--accent); }
+
+/* Duel */
+.duel { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: stretch; }
+.vs { align-self: center; font-family: var(--display); font-weight: 800; font-size: 1.3rem; color: var(--muted); }
+.card { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 14px 16px; cursor: pointer; text-align: left; display: grid; gap: 6px; align-content: start; min-width: 0; color: var(--ink); font-weight: 400; }
+.card::before, .card::after { content: ""; position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--bg); border: 1px solid var(--line); transform: translateY(-50%); }
+.card::before { left: -8px; clip-path: inset(0 0 0 50%); }
+.card::after { right: -8px; clip-path: inset(0 50% 0 0); }
+.card:hover { border-color: var(--accent); }
+.card .title { font-family: var(--display); font-weight: 700; font-size: clamp(1.25rem, 4.4vw, 1.75rem); line-height: 1.05; text-transform: uppercase; overflow-wrap: anywhere; }
+.card .key { position: absolute; top: 8px; right: 10px; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+.duel-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+
+/* Star definitions */
+.levels { display: grid; gap: 6px; }
+.level { display: grid; grid-template-columns: 5.2em 1fr; gap: 10px; align-items: center; text-align: left; font-weight: 400; padding: 10px 12px; }
+.level .stars { font-size: 1rem; }
+.level.on { border-color: var(--accent); background: var(--accent-soft); }
+.def-edit { display: grid; grid-template-columns: 5.2em 1fr; gap: 8px; align-items: center; }
+.film-head { display: grid; gap: 2px; }
+.film-head .title { font-family: var(--display); font-weight: 800; font-size: clamp(1.8rem, 6vw, 2.6rem); line-height: 1; text-transform: uppercase; overflow-wrap: anywhere; }
+
+/* Categories */
+.cat-edit { display: grid; grid-template-columns: 1fr 5.5em auto; gap: 8px; align-items: center; }
+.slider { display: grid; grid-template-columns: minmax(6em, 9em) 1fr 2.4em; gap: 10px; align-items: center; }
+.slider input { width: 100%; accent-color: var(--accent); }
+.score { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+.score .big { font-family: var(--display); font-weight: 800; font-size: 2.2rem; line-height: 1; }
+
+/* Results */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.stat { display: grid; gap: 2px; }
+.stat b { font-family: var(--display); font-size: 1.9rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.hist { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; align-items: end; height: 140px; border-bottom: 1px solid var(--line); }
+.hist .col { display: flex; gap: 2px; align-items: end; height: 100%; justify-content: center; }
+.hist .bar { width: 42%; border-radius: 3px 3px 0 0; min-height: 1px; }
+.bar.old { background: var(--line); }
+.bar.new { background: var(--accent); }
+.hist-x { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; text-align: center; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+.legend { display: flex; gap: 14px; font-size: 0.8rem; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td.name { white-space: normal; min-width: 12em; }
+th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.up { color: var(--up); } .down { color: var(--down); }
+textarea.csv { width: 100%; height: 160px; font-family: var(--mono); font-size: 0.78rem; }
+.ranklist { margin: 0; padding-left: 2.2em; display: grid; gap: 2px; font-size: 0.9rem; }
+.ranklist li::marker { font-family: var(--mono); color: var(--muted); font-size: 0.8rem; }
+.done { text-align: center; padding: 26px 16px; }
+footer { font-size: 0.8rem; color: var(--muted); }
+
+@media (max-width: 520px) {
+  .duel { grid-template-columns: 1fr 1fr; }
+  .vs { display: none; }
+  .slider { grid-template-columns: 1fr 2.4em; }
+  .slider .sname { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: no-preference) { .progress i { transition: width .25s ease; } }
+/* Posters */
+.poster { aspect-ratio: 2 / 3; width: 100%; max-width: 100%; border-radius: 8px; overflow: hidden; background: var(--sunk); display: grid; place-items: center; color: var(--muted); font-size: 0.75rem; text-align: center; padding: 0; }
+.poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.poster.none { padding: 8px; }
+.film-row { display: grid; grid-template-columns: 110px 1fr; gap: 14px; align-items: start; }
+.film-row > * { min-width: 0; }
+.thumb { width: 34px; }
+.thumb .poster { border-radius: 3px; font-size: 0; }
+.keybox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 0.88rem; }
+.keybox input { flex: 1 1 220px; }
+@media (max-width: 520px) { .film-row { grid-template-columns: 80px 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Re<span>Packagd</span></h1>
+    <div class="drop" id="drop">
+      <p class="small"><strong>Load your Letterboxd export.</strong> <span class="muted">Drop the .zip from Settings → Data → Export, or pick <span class="mono">watched.csv</span>, <span class="mono">ratings.csv</span> and <span class="mono">diary.csv</span>. Files stay in your browser.</span></p>
+      <label class="btn primary">Choose files<input type="file" id="file" multiple accept=".csv,.zip"></label>
+    </div>
+    <div class="keybox" id="keybox"></div>
+    <div class="banner" id="banner"></div>
+  </header>
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+  <main id="panel" class="panel"></main>
+  <footer>Rankings, your TMDB key and the poster cache are kept in this browser only. Clearing site data resets them.<br>Film posters from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</footer>
+</div>
+
+<script>
+(() => {
+const LS_KEY = 'repackagd.v1';
+const KEY_KEY = 'repackagd.tmdbkey';
+const POSTER_KEY = 'repackagd.posters';
+const LEVELS = [5,4.5,4,3.5,3,2.5,2,1.5,1,0.5];
+const DEFAULT_DEFS = {
+  '5':'All-time favourite. I would rewatch it any time.', '4.5':'Exceptional. I recommend it to anyone.',
+  '4':'Great. It stayed with me afterwards.', '3.5':'Very good, with a few flaws.',
+  '3':'Good. Enjoyed it, but I won\'t think about it much.', '2.5':'Fine. Mixed feelings overall.',
+  '2':'Weak, with some redeeming parts.', '1.5':'Poor. I struggled to finish it.',
+  '1':'Bad. Almost nothing worked.', '0.5':'Among the worst films I have seen.'
+};
+const DEFAULT_CATS = [{name:'Story',w:3},{name:'Acting',w:2},{name:'Visuals',w:2},{name:'Sound & score',w:1},{name:'Rewatchability',w:2}];
+const SAMPLE = [
+ ['Oppenheimer',2023,5],['Interstellar',2014,4.5],['The Dark Knight',2008,4.5],['Parasite',2019,4.5],['Whiplash',2014,5],
+ ['Dune: Part Two',2024,4.5],['Arrival',2016,4],['Inception',2010,4],['La La Land',2016,3.5],['Mad Max: Fury Road',2015,4],
+ ['Everything Everywhere All at Once',2022,4],['The Batman',2022,3.5],['Barbie',2023,3],['Joker',2019,3],['Blade Runner 2049',2017,4.5],
+ ['Spirited Away',2001,4],['Get Out',2017,3.5],['The Grand Budapest Hotel',2014,4],['Tenet',2020,2.5],['Knives Out',2019,3.5],
+ ['Top Gun: Maverick',2022,3.5],['Past Lives',2023,null],['The Social Network',2010,null],['Rush',2013,null]
+];
+
+let S = null;
+let TMDB_KEY = ''; try { TMDB_KEY = localStorage.getItem(KEY_KEY) || ''; } catch (e) {}
+let POSTERS = {}; try { POSTERS = JSON.parse(localStorage.getItem(POSTER_KEY) || '{}'); } catch (e) {}
+let keyState = 'ok'; // ok | bad | offline
+let editingKey = false;
+let csvOpen = false;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const stars = v => v == null ? '<span class="muted">unrated</span>' : `<span class="stars" aria-label="${v} stars">${'★'.repeat(Math.floor(v))}${v % 1 ? '½' : ''}</span>`;
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const keyOf = (name, year) => name.trim().toLowerCase() + '|' + String(year || '').trim();
+
+/* ---------- Posters (TMDB) ---------- */
+const pending = new Set(), waiting = [];
+let running = 0;
+function posterSrc(id, size) { const p = POSTERS[id]; return p ? `https://image.tmdb.org/t/p/${size}${p}` : null; }
+function posterHTML(id, size = 'w342') {
+  if (!TMDB_KEY || keyState === 'bad') return '';
+  return `<div class="poster" data-poster="${esc(id)}" data-size="${size}"></div>`;
+}
+function fillPoster(el) {
+  const id = el.dataset.poster, f = S.films[id]; if (!f) return;
+  if (POSTERS[id]) { el.classList.remove('none'); el.innerHTML = `<img src="${posterSrc(id, el.dataset.size)}" alt="Poster for ${esc(f.name)}" loading="lazy">`; }
+  else if (POSTERS[id] === '') { el.classList.add('none'); el.textContent = 'No poster found'; }
+  else queuePoster(id);
+}
+function hydratePosters() { document.querySelectorAll('[data-poster]').forEach(fillPoster); }
+function prefetch(ids) { if (TMDB_KEY && keyState !== 'bad') ids.filter(Boolean).forEach(queuePoster); }
+async function tmdbSearch(name, year) {
+  const token = TMDB_KEY.length > 40;
+  const params = new URLSearchParams({ query: name, include_adult: 'false' });
+  if (year) params.set('year', year);
+  if (!token) params.set('api_key', TMDB_KEY);
+  const headers = { accept: 'application/json' };
+  if (token) headers.Authorization = 'Bearer ' + TMDB_KEY;
+  const r = await fetch('https://api.themoviedb.org/3/search/movie?' + params, { headers });
+  if (r.status === 401) throw new Error('bad');
+  if (!r.ok) throw new Error('offline');
+  return (await r.json()).results || [];
+}
+function queuePoster(id) {
+  if (!TMDB_KEY || keyState === 'bad' || id in POSTERS || pending.has(id) || !S.films[id]) return;
+  pending.add(id); waiting.push(id); pump();
+}
+function pump() {
+  while (running < 4 && waiting.length) {
+    const id = waiting.shift(), f = S.films[id];
+    running++;
+    (async () => {
+      try {
+        let res = await tmdbSearch(f.name, f.year);
+        if (!res.length && f.year) res = await tmdbSearch(f.name, '');
+        const hit = res.find(m => m.poster_path);
+        POSTERS[id] = hit ? hit.poster_path : '';
+        try { localStorage.setItem(POSTER_KEY, JSON.stringify(POSTERS)); } catch (e) {}
+        if (keyState !== 'ok') { keyState = 'ok'; renderKeyBox(); }
+        document.querySelectorAll('[data-poster]').forEach(el => { if (el.dataset.poster === id) fillPoster(el); });
+      } catch (e) {
+        if (e.message === 'bad') { keyState = 'bad'; waiting.length = 0; pending.clear(); render(); }
+        else if (keyState !== 'offline') { keyState = 'offline'; renderKeyBox(); }
+      } finally { pending.delete(id); running--; pump(); }
+    })();
+  }
+}
+function renderKeyBox() {
+  const box = $('#keybox');
+  if (TMDB_KEY && !editingKey && keyState !== 'bad') {
+    box.innerHTML = `<span class="chip">Posters on</span><span class="small muted">${keyState === 'offline' ? 'Could not reach TMDB. Posters will retry when you move on.' : 'TMDB key saved in this browser.'}</span><button class="ghost" data-act="keyEdit">Change key</button><button class="ghost" data-act="keyRemove">Remove</button>`;
+  } else {
+    box.innerHTML = `${keyState === 'bad' ? '<span class="err">TMDB rejected that key. Check it and paste it again.</span>' : '<span class="small muted">Add a free TMDB key to show posters (themoviedb.org → Settings → API).</span>'}
+      <input type="password" id="tmdbKey" placeholder="API key or read access token" autocomplete="off" aria-label="TMDB API key"><button data-act="keySave">Save key</button>${editingKey ? '<button class="ghost" data-act="keyCancel">Cancel</button>' : ''}`;
+  }
+}
+
+/* ---------- State ---------- */
+function freshState(films, sample) {
+  const st = {
+    films, sample, tab: 'compare', showOld: true,
+    cmp: null,
+    defs: { text: {...DEFAULT_DEFS}, whole: false, includeUnrated: true, queue: [], i: 0, assigned: {}, editing: false },
+    cats: { list: DEFAULT_CATS.map(c => ({...c})), includeUnrated: true, queue: [], i: 0, scores: {}, editing: false, draft: null },
+    res: { source: 'compare', map: 'match', onlyChanged: true }
+  };
+  S = st;
+  initCmp(true);
+  buildQueue('defs'); buildQueue('cats');
+  return st;
+}
+function sampleFilms() {
+  const f = {};
+  SAMPLE.forEach(([name, year, r]) => { const id = keyOf(name, year); f[id] = { id, name, year: String(year), uri: '', old: r }; });
+  return f;
+}
+function save() { try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch (e) {} }
+function load() {
+  try { const raw = localStorage.getItem(LS_KEY); if (raw) { const st = JSON.parse(raw); if (st && st.films && st.cmp) { S = st; return true; } } } catch (e) {}
+  return false;
+}
+
+/* ---------- CSV ---------- */
+function parseCSV(text) {
+  text = text.replace(/^﻿/, '');
+  const rows = []; let row = [], field = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+      else field += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = ''; if (row.some(x => x !== '')) rows.push(row); row = [];
+    } else field += c;
+  }
+  row.push(field); if (row.some(x => x !== '')) rows.push(row);
+  return rows;
+}
+function ingest(files) {
+  const films = {};
+  const order = { watched: 0, diary: 1, ratings: 2 };
+  const parsed = [];
+  for (const { name, text } of files) {
+    const lower = name.toLowerCase();
+    if (/watchlist|likes|deleted|lists\//.test(lower)) continue;
+    const rows = parseCSV(text); if (rows.length < 2) continue;
+    const h = rows[0].map(x => x.trim());
+    const col = n => h.indexOf(n);
+    if (col('Name') < 0) continue;
+    let kind = col('Watched Date') >= 0 || lower.includes('diary') ? 'diary' : col('Rating') >= 0 ? 'ratings' : 'watched';
+    parsed.push({ kind, rows, col });
+  }
+  parsed.sort((a, b) => order[a.kind] - order[b.kind]);
+  for (const { kind, rows, col } of parsed) {
+    const iN = col('Name'), iY = col('Year'), iU = col('Letterboxd URI'), iR = col('Rating'), iW = col('Watched Date');
+    for (const r of rows.slice(1)) {
+      const name = (r[iN] || '').trim(); if (!name) continue;
+      const year = iY >= 0 ? (r[iY] || '').trim() : '';
+      const id = keyOf(name, year);
+      const f = films[id] ||= { id, name, year, uri: '', old: null, _rs: '', _wd: '' };
+      const rating = iR >= 0 && r[iR] !== '' ? parseFloat(r[iR]) : null;
+      if (kind === 'watched') { if (iU >= 0 && !f.uri) f.uri = r[iU] || ''; }
+      if (kind === 'diary' && rating != null && f._rs !== 'ratings') {
+        const wd = iW >= 0 ? r[iW] || '' : '';
+        if (!f._wd || wd >= f._wd) { f.old = rating; f._wd = wd; f._rs = 'diary'; }
+      }
+      if (kind === 'ratings') { if (rating != null) { f.old = rating; f._rs = 'ratings'; } if (iU >= 0 && r[iU]) f.uri = r[iU]; }
+    }
+  }
+  Object.values(films).forEach(f => { delete f._rs; delete f._wd; if (f.uri && !/boxd\.it|letterboxd\.com\/film\//.test(f.uri)) f.uri = ''; });
+  return films;
+}
+async function readFiles(list) {
+  const out = [];
+  for (const file of list) {
+    if (/\.zip$/i.test(file.name)) {
+      if (!window.JSZip) throw new Error('The zip reader did not load. Unzip the export and choose the CSV files instead.');
+      const zip = await JSZip.loadAsync(file);
+      for (const n of ['watched.csv', 'ratings.csv', 'diary.csv']) { const e = zip.file(n); if (e) out.push({ name: n, text: await e.async('string') }); }
+    } else if (/\.csv$/i.test(file.name)) out.push({ name: file.name, text: await file.text() });
+  }
+  return out;
+}
+async function handleFiles(list) {
+  const banner = $('#banner');
+  try {
+    const files = await readFiles([...list]);
+    const films = ingest(files);
+    const n = Object.keys(films).length;
+    if (!n) { banner.innerHTML = '<span class="err">No films found. Use watched.csv, ratings.csv or diary.csv from the Letterboxd export (or the .zip itself).</span>'; return; }
+    freshState(films, false); save(); render();
+  } catch (e) { banner.innerHTML = `<span class="err">${esc(e.message || 'Could not read those files.')}</span>`; }
+}
+
+/* ---------- Comparison (insertion against neighbours) ---------- */
+function initCmp(includeUnrated) {
+  const all = Object.values(S.films);
+  const groups = {};
+  all.filter(f => f.old != null).forEach(f => (groups[f.old] ||= []).push(f.id));
+  const queue = Object.keys(groups).map(Number).sort((a, b) => b - a).flatMap(r => shuffle(groups[r]));
+  if (includeUnrated) queue.push(...shuffle(all.filter(f => f.old == null).map(f => f.id)));
+  S.cmp = { includeUnrated, ranked: [], queue, cur: null, s: null, skipped: [], asked: 0, hist: [] };
+  advance();
+}
+function windowFor(id) {
+  const c = S.cmp, f = S.films[id], n = c.ranked.length;
+  if (f.old == null) return { lo: 0, hi: n, kl: true, kh: true };
+  let lo = -1, hi = -1;
+  c.ranked.forEach((x, i) => { const o = S.films[x].old; if (o != null && Math.abs(o - f.old) <= 0.5) { if (lo < 0) lo = i; hi = i + 1; } });
+  if (lo < 0) { let p = c.ranked.findIndex(x => S.films[x].old != null && S.films[x].old < f.old); if (p < 0) p = n; lo = hi = p; }
+  return { lo, hi, kl: lo === 0, kh: hi === n };
+}
+function opponent() {
+  const s = S.cmp.s; if (!s) return null;
+  if (s.lo < s.hi) return { idx: Math.floor((s.lo + s.hi) / 2), type: 'mid' };
+  if (!s.kl) return { idx: s.lo - 1, type: 'above' };
+  if (!s.kh) return { idx: s.hi, type: 'below' };
+  return null;
+}
+function advance() {
+  const c = S.cmp;
+  while (true) {
+    if (c.cur != null) {
+      if (opponent()) return;
+      c.ranked.splice(c.s.lo, 0, c.cur); c.cur = null; c.s = null;
+    }
+    if (!c.queue.length) return;
+    c.cur = c.queue.shift();
+    if (!c.ranked.length) { c.ranked.push(c.cur); c.cur = null; continue; }
+    c.s = windowFor(c.cur);
+  }
+}
+function snapshot() {
+  const c = S.cmp;
+  c.hist.push(JSON.stringify({ ranked: c.ranked, queue: c.queue, cur: c.cur, s: c.s, skipped: c.skipped, asked: c.asked }));
+  if (c.hist.length > 100) c.hist.shift();
+}
+function answer(choice) { // 'cur' | 'opp' | 'tie' | 'skip'
+  const c = S.cmp, o = opponent(); if (c.cur == null) return;
+  snapshot();
+  if (choice === 'skip') { c.skipped.push(c.cur); c.cur = null; c.s = null; advance(); return commit(); }
+  if (!o) return;
+  c.asked++;
+  const s = c.s, n = c.ranked.length;
+  if (choice === 'tie') { s.lo = s.hi = o.idx + 1; s.kl = s.kh = true; }
+  else {
+    const better = choice === 'cur';
+    if (o.type === 'mid') { if (better) { s.hi = o.idx; s.kh = true; } else { s.lo = o.idx + 1; s.kl = true; } }
+    else if (o.type === 'above') { if (better) { s.hi = s.lo - 1; s.kh = true; s.lo = 0; s.kl = true; } else s.kl = true; }
+    else { if (better) s.kh = true; else { s.lo = s.hi + 1; s.kl = true; s.hi = n; s.kh = true; } }
+  }
+  advance(); commit();
+}
+function undo() {
+  const c = S.cmp; const h = c.hist.pop(); if (!h) return;
+  Object.assign(c, JSON.parse(h)); commit();
+}
+function cmpRatings() {
+  const r = S.cmp.ranked, n = r.length, out = {};
+  const pool = r.map(id => S.films[id].old).filter(v => v != null).sort((a, b) => b - a);
+  const match = S.res.map === 'match' && pool.length >= 2;
+  r.forEach((id, i) => {
+    out[id] = match ? pool[Math.min(pool.length - 1, Math.floor(i * pool.length / n))] : 5 - Math.floor(i * 10 / n) * 0.5;
+  });
+  return out;
+}
+
+/* ---------- Queues for the two criteria modes ---------- */
+function buildQueue(mode) {
+  const m = S[mode];
+  const ids = Object.values(S.films).filter(f => m.includeUnrated || f.old != null).map(f => f.id);
+  m.queue = shuffle(ids); m.i = 0;
+}
+function levelsShown() { return S.defs.whole ? LEVELS.filter(v => v % 1 === 0) : LEVELS; }
+function catScore(id) {
+  const sc = S.cats.scores[id]; if (!sc) return null;
+  let tw = 0, t = 0;
+  S.cats.list.forEach(c => { if (sc[c.name] != null && c.w > 0) { tw += c.w; t += c.w * sc[c.name]; } });
+  if (!tw) return null;
+  const raw = t / tw;
+  return { raw, stars: Math.min(5, Math.max(0.5, Math.round(raw / 10 * 5 * 2) / 2)) };
+}
+function catRatings() { const o = {}; Object.keys(S.cats.scores).forEach(id => { const s = catScore(id); if (s && S.films[id]) o[id] = s.stars; }); return o; }
+function defRatings() { const o = {}; Object.entries(S.defs.assigned).forEach(([id, v]) => { if (S.films[id]) o[id] = v; }); return o; }
+function ratingsFor(src) { return src === 'compare' ? cmpRatings() : src === 'defs' ? defRatings() : catRatings(); }
+
+function commit() { save(); render(); }
+
+/* ---------- Rendering ---------- */
+function render() {
+  const films = Object.values(S.films), rated = films.filter(f => f.old != null).length;
+  $('#banner').innerHTML = (S.sample ? '<span class="chip example">Example films</span>' : '<span class="chip">Your export</span>')
+    + `<span class="small muted">${films.length} films · ${rated} rated · ${films.length - rated} unrated</span>`
+    + `<label class="check small" style="margin-left:auto"><input type="checkbox" id="showOld" ${S.showOld ? 'checked' : ''}> Show my old rating while rerating</label>`;
+  const counts = { compare: S.cmp.ranked.length, defs: Object.keys(S.defs.assigned).length, cats: Object.keys(S.cats.scores).length };
+  const tabs = [['compare', 'Compare'], ['defs', 'Star definitions'], ['cats', 'Categories'], ['results', 'Results']];
+  $('#tabs').innerHTML = tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${l}${counts[k] != null ? `<span class="count">${counts[k]}</span>` : ''}</button>`).join('');
+  const p = $('#panel');
+  p.innerHTML = S.tab === 'compare' ? viewCompare() : S.tab === 'defs' ? viewDefs() : S.tab === 'cats' ? viewCats() : viewResults();
+  renderKeyBox();
+  hydratePosters();
+  if (S.tab === 'compare') prefetch(S.cmp.queue.slice(0, 3));
+  else if (S.tab === 'defs') prefetch(S.defs.queue.slice(S.defs.i + 1, S.defs.i + 4));
+  else if (S.tab === 'cats') prefetch(S.cats.queue.slice(S.cats.i + 1, S.cats.i + 4));
+}
+
+function filmMeta(f) { return `<span class="mono small muted">${esc(f.year)}</span>${S.showOld ? ` · ${stars(f.old)}` : ''}`; }
+
+function viewCompare() {
+  const c = S.cmp, total = Object.values(S.films).filter(f => c.includeUnrated || f.old != null).length;
+  const placed = c.ranked.length, pct = total ? Math.round(100 * (placed + c.skipped.length) / total) : 0;
+  const o = opponent();
+  let body;
+  if (c.cur != null && o) {
+    const a = S.films[c.cur], b = S.films[c.ranked[o.idx]];
+    body = `<div class="box">
+      <p class="label" style="text-align:center">Which do you rate higher?</p>
+      <div class="duel">
+        <button class="card" data-act="ans" data-v="cur"><span class="key">←</span>${posterHTML(a.id)}<span class="label">Placing</span><span class="title">${esc(a.name)}</span><span>${filmMeta(a)}</span></button>
+        <span class="vs">vs</span>
+        <button class="card" data-act="ans" data-v="opp"><span class="key">→</span>${posterHTML(b.id)}<span class="label">Ranked #${o.idx + 1}</span><span class="title">${esc(b.name)}</span><span>${filmMeta(b)}</span></button>
+      </div>
+      <div class="duel-actions">
+        <button data-act="ans" data-v="tie">About equal <span class="mono muted">↓</span></button>
+        <button data-act="ans" data-v="skip">Leave this one out</button>
+        <button class="ghost" data-act="undo" ${c.hist.length ? '' : 'disabled'}>Undo <span class="mono">U</span></button>
+      </div>
+    </div>`;
+  } else {
+    body = `<div class="box done"><h2>Every film is placed</h2><p class="muted">${placed} ranked${c.skipped.length ? `, ${c.skipped.length} left out` : ''}. See the new stars under Results.</p>
+      <div class="row" style="justify-content:center"><button class="primary" data-tab="results">View results</button><button class="ghost" data-act="undo" ${c.hist.length ? '' : 'disabled'}>Undo last</button></div></div>`;
+  }
+  const top = c.ranked.slice(0, 10).map(id => `<li>${esc(S.films[id].name)} <span class="mono small muted">${esc(S.films[id].year)}</span></li>`).join('');
+  return `<div class="intro"><h2>Compare</h2><p class="muted small">Each film is checked against films you rated within half a star of it, then placed by binary search. If it beats the top of that range, or loses to the bottom, the search widens. Unrated films are searched across the whole list.</p></div>
+    <div class="row between"><span class="small"><span class="mono">${placed}</span> placed of <span class="mono">${total}</span> · <span class="mono">${c.asked}</span> comparisons so far</span>
+      <span class="row"><label class="check"><input type="checkbox" id="cmpUnrated" ${c.includeUnrated ? 'checked' : ''}> Include unrated films</label><button class="ghost" data-act="restartCmp">Start over</button></span></div>
+    <div class="progress"><i style="width:${pct}%"></i></div>
+    <div id="confirmCmp"></div>
+    ${body}
+    ${placed ? `<div class="box"><p class="label">Current top ${Math.min(10, placed)}</p><ol class="ranklist">${top}</ol></div>` : ''}`;
+}
+
+function viewDefs() {
+  const d = S.defs, lv = levelsShown();
+  const editor = `<div class="box"><div class="row between"><p class="label">What each rating means to you</p><label class="check"><input type="checkbox" id="whole" ${d.whole ? 'checked' : ''}> Whole stars only</label></div>
+    ${lv.map(v => `<div class="def-edit">${stars(v)}<input type="text" id="def-${String(v).replace('.', '_')}" data-def="${v}" value="${esc(d.text[v])}" aria-label="Meaning of ${v} stars"></div>`).join('')}
+    <div class="row"><button class="primary" data-act="defsDone">Done</button><button class="ghost" data-act="defsReset">Restore examples</button></div></div>`;
+  let body;
+  const id = d.queue[d.i];
+  if (d.editing) body = editor;
+  else if (id && S.films[id]) {
+    const f = S.films[id], cur = d.assigned[id];
+    const ph = posterHTML(f.id);
+    body = `<div class="box"><div class="${ph ? 'film-row' : ''}">${ph}<div class="film-head"><span class="label">Film ${d.i + 1} of ${d.queue.length}</span><span class="title">${esc(f.name)}</span><span>${filmMeta(f)}</span></div></div>
+      <p class="small muted">Pick the description that fits. <span class="mono">1–${lv.length === 10 ? '0' : '5'}</span> on a keyboard.</p>
+      <div class="levels">${lv.map((v, i) => `<button class="level ${cur === v ? 'on' : ''}" data-act="pick" data-v="${v}">${stars(v)}<span>${esc(d.text[v])}</span></button>`).join('')}</div>
+      <div class="row"><button data-act="dPrev" ${d.i ? '' : 'disabled'}>Back</button><button data-act="dSkip">Skip</button><button class="ghost" data-act="defsEdit">Edit definitions</button></div></div>`;
+  } else body = `<div class="box done"><h2>All films rated</h2><p class="muted">${Object.keys(d.assigned).length} films have a new rating.</p><div class="row" style="justify-content:center"><button class="primary" data-tab="results">View results</button><button class="ghost" data-act="dPrev">Back to last film</button></div></div>`;
+  const pct = d.queue.length ? Math.round(100 * d.i / d.queue.length) : 0;
+  return `<div class="intro"><h2>Star definitions</h2><p class="muted small">Write what each rating means, then sort each film into the description that fits it best. This rates films against your own scale instead of against each other.</p></div>
+    <div class="row between"><span class="small"><span class="mono">${Object.keys(d.assigned).length}</span> rated of <span class="mono">${d.queue.length}</span></span>
+      <span class="row"><label class="check"><input type="checkbox" id="defsUnrated" ${d.includeUnrated ? 'checked' : ''}> Include unrated films</label>${d.editing ? '' : '<button class="ghost" data-act="defsEdit">Edit definitions</button>'}</span></div>
+    <div class="progress"><i style="width:${pct}%"></i></div>${body}`;
+}
+
+function viewCats() {
+  const c = S.cats;
+  const tw = c.list.reduce((a, x) => a + (+x.w || 0), 0);
+  const editor = `<div class="box"><p class="label">Categories and weights</p>
+    ${c.list.map((x, i) => `<div class="cat-edit"><input type="text" id="cn-${i}" data-cat="${i}" data-f="name" value="${esc(x.name)}" aria-label="Category name"><input type="number" id="cw-${i}" min="0" max="10" step="1" data-cat="${i}" data-f="w" value="${x.w}" aria-label="Weight"><button class="ghost" data-act="catDel" data-i="${i}" aria-label="Remove ${esc(x.name)}">Remove</button></div>`).join('')}
+    <p class="small muted">Weights are relative. Total now: <span class="mono">${tw}</span>${tw ? `. ${esc(c.list[0]?.name || '')} counts for ${Math.round(100 * (c.list[0]?.w || 0) / tw)}%.` : '. Give at least one category a weight above 0.'}</p>
+    <div class="row"><button data-act="catAdd">Add category</button><button class="primary" data-act="catsDone" ${tw ? '' : 'disabled'}>Done</button><button class="ghost" data-act="catsReset">Restore examples</button></div></div>`;
+  let body;
+  const id = c.queue[c.i];
+  if (c.editing) body = editor;
+  else if (id && S.films[id]) {
+    const f = S.films[id];
+    if (!c.draft || c.draft.id !== id) c.draft = { id, v: { ...(c.scores[id] || Object.fromEntries(c.list.map(x => [x.name, 5]))) } };
+    c.list.forEach(x => { if (c.draft.v[x.name] == null) c.draft.v[x.name] = 5; });
+    const preview = previewScore(c.draft.v);
+    const ph = posterHTML(f.id);
+    body = `<div class="box"><div class="${ph ? 'film-row' : ''}">${ph}<div class="film-head"><span class="label">Film ${c.i + 1} of ${c.queue.length}</span><span class="title">${esc(f.name)}</span><span>${filmMeta(f)}</span></div></div>
+      ${c.list.map((x, i) => `<div class="slider"><span class="sname small">${esc(x.name)} <span class="muted mono">×${x.w}</span></span><input type="range" id="sl-${i}" min="0" max="10" step="1" data-slider="${esc(x.name)}" value="${c.draft.v[x.name]}" aria-label="${esc(x.name)} score out of 10"><span class="mono" id="sv-${i}">${c.draft.v[x.name]}</span></div>`).join('')}
+      <div class="score"><span class="big mono" id="catRaw">${preview.raw.toFixed(1)}</span><span class="small muted">/ 10 weighted →</span><span id="catStars" style="font-size:1.3rem">${stars(preview.stars)}</span></div>
+      <div class="row"><button class="primary" data-act="cSave">Save and next</button><button data-act="cPrev" ${c.i ? '' : 'disabled'}>Back</button><button data-act="cSkip">Skip</button></div></div>`;
+  } else body = `<div class="box done"><h2>All films scored</h2><p class="muted">${Object.keys(c.scores).length} films scored. Changing weights later updates every result.</p><div class="row" style="justify-content:center"><button class="primary" data-tab="results">View results</button><button class="ghost" data-act="cPrev">Back to last film</button></div></div>`;
+  const pct = c.queue.length ? Math.round(100 * c.i / c.queue.length) : 0;
+  return `<div class="intro"><h2>Categories</h2><p class="muted small">Score each film out of 10 in categories you choose. The weighted average is scaled to five stars and rounded to the nearest half: a weighted 7.0 becomes ★★★½.</p></div>
+    <div class="row between"><span class="small"><span class="mono">${Object.keys(c.scores).length}</span> scored of <span class="mono">${c.queue.length}</span></span>
+      <span class="row"><label class="check"><input type="checkbox" id="catsUnrated" ${c.includeUnrated ? 'checked' : ''}> Include unrated films</label>${c.editing ? '' : '<button class="ghost" data-act="catsEdit">Edit categories</button>'}</span></div>
+    <div class="progress"><i style="width:${pct}%"></i></div>${body}`;
+}
+function previewScore(v) {
+  let tw = 0, t = 0; S.cats.list.forEach(c => { if (c.w > 0) { tw += +c.w; t += c.w * v[c.name]; } });
+  const raw = tw ? t / tw : 0; return { raw, stars: Math.min(5, Math.max(0.5, Math.round(raw / 10 * 5 * 2) / 2)) };
+}
+
+function buildCSV(newR) {
+  const q = s => /[",\n]/.test(s) ? `"${String(s).replace(/"/g, '""')}"` : s;
+  const rows = Object.entries(newR).filter(([id, v]) => !S.res.onlyChanged || S.films[id].old !== v)
+    .map(([id, v]) => { const f = S.films[id]; return [q(f.name), f.year, v, f.uri].join(','); });
+  return { text: 'Title,Year,Rating,LetterboxdURI\n' + rows.join('\n') + '\n', n: rows.length };
+}
+
+function viewResults() {
+  const r = S.res;
+  const srcs = [['compare', 'Compare', S.cmp.ranked.length], ['defs', 'Star definitions', Object.keys(S.defs.assigned).length], ['cats', 'Categories', Object.keys(S.cats.scores).length]];
+  const newR = ratingsFor(r.source);
+  const ids = Object.keys(newR);
+  const head = `<div class="intro"><h2>Results</h2><p class="muted small">Pick which method's ratings to review and export.</p></div>
+    <div class="row">${srcs.map(([k, l, n]) => `<button data-act="src" data-v="${k}" class="${r.source === k ? 'primary' : ''}">${l} <span class="mono">${n}</span></button>`).join('')}</div>`;
+  if (!ids.length) return head + `<div class="box done"><h2>Nothing rated yet</h2><p class="muted">Rate a few films with this method first.</p><div class="row" style="justify-content:center"><button class="primary" data-tab="${r.source}">Go to ${srcs.find(s => s[0] === r.source)[1]}</button></div></div>`;
+  const both = ids.filter(id => S.films[id].old != null);
+  const changed = both.filter(id => S.films[id].old !== newR[id]);
+  const shift = both.length ? both.reduce((a, id) => a + newR[id] - S.films[id].old, 0) / both.length : 0;
+  const binOld = LEVELS.slice().reverse().map(v => both.filter(id => S.films[id].old === v).length);
+  const binNew = LEVELS.slice().reverse().map(v => ids.filter(id => newR[id] === v).length);
+  const mx = Math.max(1, ...binOld, ...binNew);
+  const rows = ids.sort((a, b) => newR[b] - newR[a] || (S.cmp.ranked.indexOf(a) - S.cmp.ranked.indexOf(b)));
+  const csv = buildCSV(newR);
+  const mapCtl = r.source === 'compare' ? `<label class="small">Turn the ranking into stars by <select id="mapSel"><option value="match" ${r.map === 'match' ? 'selected' : ''}>keeping my old spread of ratings</option><option value="even" ${r.map === 'even' ? 'selected' : ''}>spreading evenly over ½–5</option></select></label>` : '';
+  return head + `${mapCtl}
+    <div class="stats">
+      <div class="box stat"><span class="label">Rerated</span><b>${ids.length}</b></div>
+      <div class="box stat"><span class="label">Changed</span><b>${changed.length}</b><span class="small muted">of ${both.length} with an old rating</span></div>
+      <div class="box stat"><span class="label">Average shift</span><b class="${shift > 0.001 ? 'up' : shift < -0.001 ? 'down' : ''}">${shift > 0 ? '+' : ''}${shift.toFixed(2)}</b><span class="small muted">stars</span></div>
+    </div>
+    <div class="box"><div class="row between"><p class="label">Distribution</p><div class="legend"><span><i class="bar old"></i>Old</span><span><i class="bar new"></i>New</span></div></div>
+      <div class="hist">${binOld.map((o, i) => `<div class="col" title="${(i + 1) / 2}★: old ${o}, new ${binNew[i]}"><span class="bar old" style="height:${100 * o / mx}%"></span><span class="bar new" style="height:${100 * binNew[i] / mx}%"></span></div>`).join('')}</div>
+      <div class="hist-x">${LEVELS.slice().reverse().map(v => `<span>${v % 1 ? (v === 0.5 ? '½' : Math.floor(v) + '½') : v}</span>`).join('')}</div>
+      <p class="small muted">Tallest bar: ${mx} films.</p></div>
+    <div class="box"><div class="row between"><p class="label">Export for Letterboxd</p><label class="check"><input type="checkbox" id="onlyChanged" ${r.onlyChanged ? 'checked' : ''}> Only changed or new ratings</label></div>
+      <p class="small muted">${csv.n} films in the file. Import it at letterboxd.com → Settings → Import &amp; Export, and check the match preview there before confirming.</p>
+      <div class="row"><button class="primary" data-act="dl">Download CSV</button><button data-act="copy">Copy CSV</button><button class="ghost" data-act="toggleCsv">${csvOpen ? 'Hide' : 'Show'} CSV</button><span id="exportMsg" class="small muted"></span></div>
+      ${csvOpen ? `<textarea class="csv" id="csvText" readonly>${esc(csv.text)}</textarea>` : ''}</div>
+    <div class="box"><div class="table-wrap"><table><thead><tr><th>#</th>${TMDB_KEY && keyState !== "bad" ? "<th></th>" : ""}<th>Film</th><th>Year</th><th>Old</th><th>New</th><th>Change</th></tr></thead><tbody>
+      ${rows.map((id, i) => { const f = S.films[id], d = f.old == null ? null : newR[id] - f.old;
+        return `<tr><td class="mono muted">${i + 1}</td>${TMDB_KEY && keyState !== "bad" ? `<td class="thumb">${posterHTML(id, "w92")}</td>` : ""}<td class="name">${esc(f.name)}</td><td class="mono">${esc(f.year)}</td><td>${stars(f.old)}</td><td>${stars(newR[id])}</td><td class="mono ${d > 0 ? 'up' : d < 0 ? 'down' : 'muted'}">${d == null ? 'new' : d === 0 ? '0' : (d > 0 ? '+' : '') + d}</td></tr>`; }).join('')}
+    </tbody></table></div></div>
+    <div class="box"><div class="row between"><span class="small muted">Load different files above, or clear everything stored in this browser.</span><span id="clearZone"><button class="ghost" data-act="clearAsk">Clear all data</button></span></div></div>`;
+}
+
+/* ---------- Events ---------- */
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-tab],[data-act]'); if (!t) return;
+  if (t.dataset.tab) { S.tab = t.dataset.tab; csvOpen = false; return commit(); }
+  const a = t.dataset.act, v = t.dataset.v;
+  const d = S.defs, c = S.cats;
+  switch (a) {
+    case 'ans': return answer(v);
+    case 'undo': return undo();
+    case 'restartCmp':
+      $('#confirmCmp').innerHTML = `<div class="box row between"><span class="small">Discard the current ranking and start again?</span><span class="row"><button class="primary" data-act="restartYes">Start over</button><button data-act="restartNo">Keep it</button></span></div>`; return;
+    case 'restartYes': initCmp(S.cmp.includeUnrated); return commit();
+    case 'restartNo': $('#confirmCmp').innerHTML = ''; return;
+    case 'pick': d.assigned[d.queue[d.i]] = parseFloat(v); d.i++; return commit();
+    case 'dPrev': d.i = Math.max(0, d.i - 1); return commit();
+    case 'dSkip': d.i++; return commit();
+    case 'defsEdit': d.editing = true; return commit();
+    case 'defsDone': d.editing = false; return commit();
+    case 'defsReset': d.text = { ...DEFAULT_DEFS }; return commit();
+    case 'catsEdit': c.editing = true; return commit();
+    case 'catsDone': c.editing = false; c.draft = null; return commit();
+    case 'catsReset': c.list = DEFAULT_CATS.map(x => ({ ...x })); c.draft = null; return commit();
+    case 'catAdd': c.list.push({ name: 'New category', w: 1 }); return commit();
+    case 'catDel': c.list.splice(+t.dataset.i, 1); return commit();
+    case 'cSave': if (c.draft) c.scores[c.draft.id] = { ...c.draft.v }; c.draft = null; c.i++; return commit();
+    case 'cPrev': c.draft = null; c.i = Math.max(0, c.i - 1); return commit();
+    case 'cSkip': c.draft = null; c.i++; return commit();
+    case 'src': S.res.source = v; return commit();
+    case 'toggleCsv': csvOpen = !csvOpen; return render();
+    case 'copy': {
+      const text = buildCSV(ratingsFor(S.res.source)).text;
+      try { await navigator.clipboard.writeText(text); $('#exportMsg').textContent = 'Copied. Paste it into a file ending in .csv.'; }
+      catch (err) { csvOpen = true; render(); const ta = $('#csvText'); ta.focus(); ta.select(); $('#exportMsg').textContent = 'Copying is blocked here. The text is selected: copy it manually.'; }
+      return;
+    }
+    case 'dl': {
+      const text = buildCSV(ratingsFor(S.res.source)).text;
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+      const link = document.createElement('a'); link.href = url; link.download = 'repackagd-letterboxd.csv';
+      document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      $('#exportMsg').textContent = 'Downloaded.';
+      return;
+    }
+    case 'keySave': {
+      const val = ($('#tmdbKey')?.value || '').trim(); if (!val) return;
+      TMDB_KEY = val; keyState = 'ok'; editingKey = false;
+      try { localStorage.setItem(KEY_KEY, val); } catch (err) {}
+      return render();
+    }
+    case 'keyEdit': editingKey = true; return renderKeyBox();
+    case 'keyCancel': editingKey = false; return renderKeyBox();
+    case 'keyRemove': TMDB_KEY = ''; keyState = 'ok'; try { localStorage.removeItem(KEY_KEY); } catch (err) {} return render();
+    case 'clearAsk': $('#clearZone').innerHTML = '<span class="row"><span class="small">Delete all films and progress?</span><button class="primary" data-act="clearYes">Delete</button><button data-act="clearNo">Cancel</button></span>'; return;
+    case 'clearNo': return render();
+    case 'clearYes': try { localStorage.removeItem(LS_KEY); } catch (err) {} freshState(sampleFilms(), true); return commit();
+  }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.id === 'file') return handleFiles(t.files);
+  if (t.id === 'showOld') { S.showOld = t.checked; return commit(); }
+  if (t.id === 'cmpUnrated') { initCmp(t.checked); return commit(); }
+  if (t.id === 'defsUnrated') { S.defs.includeUnrated = t.checked; buildQueue('defs'); return commit(); }
+  if (t.id === 'catsUnrated') { S.cats.includeUnrated = t.checked; buildQueue('cats'); S.cats.draft = null; return commit(); }
+  if (t.id === 'whole') { S.defs.whole = t.checked; return commit(); }
+  if (t.id === 'mapSel') { S.res.map = t.value; return commit(); }
+  if (t.id === 'onlyChanged') { S.res.onlyChanged = t.checked; return commit(); }
+  if (t.dataset.def) { S.defs.text[t.dataset.def] = t.value; return save(); }
+  if (t.dataset.cat != null) {
+    const x = S.cats.list[+t.dataset.cat]; const old = x.name;
+    if (t.dataset.f === 'name') { const nn = t.value.trim() || old; x.name = nn; Object.values(S.cats.scores).forEach(sc => { if (old in sc && nn !== old) { sc[nn] = sc[old]; delete sc[old]; } }); }
+    else x.w = Math.max(0, Math.min(10, parseFloat(t.value) || 0));
+    S.cats.draft = null; return commit();
+  }
+});
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset.slider && S.cats.draft) {
+    S.cats.draft.v[t.dataset.slider] = +t.value;
+    const i = t.id.split('-')[1]; $('#sv-' + i).textContent = t.value;
+    const p = previewScore(S.cats.draft.v); $('#catRaw').textContent = p.raw.toFixed(1); $('#catStars').innerHTML = stars(p.stars);
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.target.id === 'tmdbKey' && e.key === 'Enter') { e.preventDefault(); document.querySelector('[data-act="keySave"]').click(); return; }
+  if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== 'range' && e.target.type !== 'checkbox') return;
+  if (S.tab === 'compare') {
+    const map = { ArrowLeft: 'cur', ArrowRight: 'opp', ArrowDown: 'tie' };
+    if (map[e.key] && S.cmp.cur != null) { e.preventDefault(); answer(map[e.key]); }
+    else if (e.key === 'u' || e.key === 'U') undo();
+  } else if (S.tab === 'defs' && !S.defs.editing && S.defs.queue[S.defs.i]) {
+    const lv = levelsShown().slice().reverse(); // ascending
+    let n = e.key === '0' ? 10 : parseInt(e.key, 10);
+    if (n >= 1 && n <= lv.length) { S.defs.assigned[S.defs.queue[S.defs.i]] = lv[n - 1]; S.defs.i++; commit(); }
+  }
+});
+const drop = $('#drop');
+['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (ev === 'drop' || !e.relatedTarget) drop.classList.remove('over'); }));
+document.addEventListener('drop', e => { if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files); });
+
+/* ---------- Boot ---------- */
+if (!load()) freshState(sampleFilms(), true);
+render();
+})();
+</script>
