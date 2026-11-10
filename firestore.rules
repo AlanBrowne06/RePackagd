@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function invited() {
+      return signedIn() && exists(/databases/$(database)/documents/allowlist/$(request.auth.token.email.lower()));
+    }
+
+    // You add invited emails in the Firebase console. The site can only check its own entry.
+    match /allowlist/{email} {
+      allow read: if signedIn() && request.auth.token.email.lower() == email;
+      allow write: if false;
+    }
+
+    // Each invited user can read and write only their own saved progress.
+    match /users/{uid} {
+      allow read, write: if invited() && request.auth.uid == uid;
+    }
+  }
+}
