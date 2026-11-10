@@ -4,7 +4,7 @@ Rerate the films you've logged on Letterboxd.
 
 RePackagd takes your Letterboxd data export and lets you rerate every film you've watched, using one of three methods. When you're done, it gives you a CSV you can import back into Letterboxd.
 
-**Live site:** https://YOUR-USERNAME.github.io/RePackagd/
+**Live site:** https://alanbrowne06.github.io/RePackagd/
 
 ## Features
 
