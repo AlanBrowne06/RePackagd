@@ -7,6 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </body>
 </html>
 <style>
@@ -147,6 +150,8 @@ footer { font-size: 0.8rem; color: var(--muted); }
 .thumb .poster { border-radius: 3px; font-size: 0; }
 .keybox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 0.88rem; }
 .keybox input { flex: 1 1 220px; }
+.account { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 0.88rem; }
+.account .choice { flex: 1 1 100%; display: grid; gap: 8px; background: var(--accent-soft); border-radius: 10px; padding: 12px; }
 @media (max-width: 520px) { .film-row { grid-template-columns: 80px 1fr; } }
 </style>
 </head>
@@ -158,6 +163,7 @@ footer { font-size: 0.8rem; color: var(--muted); }
       <p class="small"><strong>Load your Letterboxd export.</strong> <span class="muted">Drop the .zip from Settings → Data → Export, or pick <span class="mono">watched.csv</span>, <span class="mono">ratings.csv</span> and <span class="mono">diary.csv</span>. Files stay in your browser.</span></p>
       <label class="btn primary">Choose files<input type="file" id="file" multiple accept=".csv,.zip"></label>
     </div>
+    <div class="account" id="account"></div>
     <div class="keybox" id="keybox"></div>
     <div class="banner" id="banner"></div>
   </header>
@@ -168,6 +174,14 @@ footer { font-size: 0.8rem; color: var(--muted); }
 
 <script>
 (() => {
+/* ===== Online saving: paste your Firebase web config between the braces (Project settings → Your apps). Leave empty to turn accounts off. ===== */
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyADlGm42JGvK8-4PMXtiuoJOKKnVogaZNI',
+  authDomain: 'repackagd.firebaseapp.com',
+  projectId: 'repackagd',
+  appId: '1:649576199182:web:2623763f2eea33e19bf85f'
+};
+/* ===== end of config ===== */
 const LS_KEY = 'repackagd.v1';
 const KEY_KEY = 'repackagd.tmdbkey';
 const POSTER_KEY = 'repackagd.posters';
@@ -270,7 +284,7 @@ function freshState(films, sample) {
     cmp: null,
     defs: { text: {...DEFAULT_DEFS}, whole: false, includeUnrated: true, queue: [], i: 0, assigned: {}, editing: false },
     cats: { list: DEFAULT_CATS.map(c => ({...c})), includeUnrated: true, queue: [], i: 0, scores: {}, editing: false, draft: null },
-    res: { source: 'compare', map: 'match', onlyChanged: true }
+    res: { source: 'compare', curve: 'match', mu: 3.25, sd: 1, onlyChanged: true }
   };
   S = st;
   initCmp(true);
@@ -282,9 +296,70 @@ function sampleFilms() {
   SAMPLE.forEach(([name, year, r]) => { const id = keyOf(name, year); f[id] = { id, name, year: String(year), uri: '', old: r }; });
   return f;
 }
-function save() { try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch (e) {} }
+const serial = () => JSON.stringify(S, (k, v) => k === 'hist' ? [] : v);
+function save(bump = true) { if (bump) S.updated = Date.now(); try { localStorage.setItem(LS_KEY, serial()); } catch (e) {} if (bump) scheduleSync(); }
+
+/* ---------- Accounts and online saving (Firebase) ---------- */
+let fb = null, user = null, access = 'none', syncMsg = '', choice = null, syncTimer = null;
+const fmtTime = ms => ms ? new Date(ms).toLocaleString('en-IE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'unknown time';
+function initFirebase() {
+  if (!FIREBASE_CONFIG.apiKey || !window.firebase) return;
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    fb = { auth: firebase.auth(), db: firebase.firestore() };
+    fb.auth.getRedirectResult().catch(() => {});
+    fb.auth.onAuthStateChanged(onUser);
+  } catch (e) { fb = null; }
+  renderAccount();
+}
+async function onUser(u) {
+  user = u; choice = null; syncMsg = ''; access = u ? 'checking' : 'none'; renderAccount();
+  if (!u) return;
+  try { access = (await fb.db.collection('allowlist').doc((u.email || '').toLowerCase()).get()).exists ? 'yes' : 'no'; }
+  catch (e) { access = 'no'; }
+  if (access === 'yes') { try { await pull(); } catch (e) { syncMsg = 'Could not load your online copy. Check your connection.'; } }
+  renderAccount();
+}
+const userDoc = () => fb.db.collection('users').doc(user.uid);
+function adopt(remote) { S = remote; S.cmp.hist = []; save(false); render(); }
+async function pull() {
+  const snap = await userDoc().get();
+  if (!snap.exists) { if (!S.sample) await push(); else syncMsg = 'Nothing saved online yet. Load your export to start.'; return; }
+  const d = snap.data(), remote = JSON.parse(d.state);
+  if (S.sample || remote.updated === S.updated) { adopt(remote); syncMsg = 'Loaded your progress saved ' + fmtTime(d.updatedMs) + '.'; }
+  else choice = { remote, when: d.updatedMs };
+}
+async function push() {
+  if (!fb || !user || access !== 'yes' || choice || S.sample) return;
+  const json = serial();
+  if (new Blob([json]).size > 900000) { syncMsg = 'Too large to save online (over 900 KB). Progress is still saved on this device.'; return renderAccount(); }
+  try { await userDoc().set({ state: json, updatedMs: S.updated || Date.now(), email: user.email }); syncMsg = 'Saved online at ' + fmtTime(Date.now()) + '.'; }
+  catch (e) { syncMsg = 'Online save failed. Progress is still saved on this device.'; }
+  renderAccount();
+}
+function scheduleSync() { if (!fb || access !== 'yes' || choice || S.sample) return; clearTimeout(syncTimer); syncTimer = setTimeout(push, 2000); }
+async function signIn() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  try { await fb.auth.signInWithPopup(provider); }
+  catch (e) {
+    if (e && /popup-blocked|operation-not-supported/.test(e.code || '')) fb.auth.signInWithRedirect(provider);
+    else if (e && e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') { syncMsg = 'Sign-in failed: ' + (e.code || 'unknown error'); renderAccount(); }
+  }
+}
+function renderAccount() {
+  const box = $('#account'); if (!box) return;
+  if (!fb) { box.innerHTML = ''; return; }
+  if (!user) { box.innerHTML = `<button data-act="signIn">Sign in with Google</button><span class="small muted">Save progress online and pick it up on another device. Invite only for now.</span>${syncMsg ? `<span class="err">${esc(syncMsg)}</span>` : ''}`; return; }
+  const who = `<span class="small">${esc(user.email)}</span><button class="ghost" data-act="signOut">Sign out</button>`;
+  if (access === 'checking') { box.innerHTML = `<span class="chip">Checking access</span>${who}`; return; }
+  if (access === 'no') { box.innerHTML = `<span class="chip">Signed in</span>${who}<span class="small muted">Online saving is invite only for now. Your progress stays on this device.</span>`; return; }
+  const ranked = st => st.cmp.ranked.length + Object.keys(st.defs.assigned).length + Object.keys(st.cats.scores).length;
+  box.innerHTML = `<span class="chip example">Online saving on</span>${who}${syncMsg ? `<span class="small muted">${esc(syncMsg)}</span>` : ''}
+    ${choice ? `<div class="choice"><span class="small"><strong>This device and your online copy are different.</strong> Online: saved ${fmtTime(choice.when)}, ${ranked(choice.remote)} films rerated. This device: saved ${fmtTime(S.updated)}, ${S.sample ? 'example films only' : ranked(S) + ' films rerated'}.</span>
+      <span class="row"><button class="primary" data-act="useRemote">Use online copy</button><button data-act="useLocal">Keep this device's and save it online</button></span></div>` : ''}`;
+}
 function load() {
-  try { const raw = localStorage.getItem(LS_KEY); if (raw) { const st = JSON.parse(raw); if (st && st.films && st.cmp) { S = st; return true; } } } catch (e) {}
+  try { const raw = localStorage.getItem(LS_KEY); if (raw) { const st = JSON.parse(raw); if (st && st.films && st.cmp) { S = st; S.res.curve ??= 'match'; S.res.mu ??= 3.25; S.res.sd ??= 1; return true; } } } catch (e) {}
   return false;
 }
 
@@ -426,13 +501,24 @@ function undo() {
   const c = S.cmp; const h = c.hist.pop(); if (!h) return;
   Object.assign(c, JSON.parse(h)); commit();
 }
-function cmpRatings() {
-  const r = S.cmp.ranked, n = r.length, out = {};
-  const pool = r.map(id => S.films[id].old).filter(v => v != null).sort((a, b) => b - a);
-  const match = S.res.map === 'match' && pool.length >= 2;
-  r.forEach((id, i) => {
-    out[id] = match ? pool[Math.min(pool.length - 1, Math.floor(i * pool.length / n))] : 5 - Math.floor(i * 10 / n) * 0.5;
-  });
+/* ---------- Curves: keep the order, reassign stars to a target shape ---------- */
+function erf(x) { const t = 1 / (1 + 0.3275911 * Math.abs(x)); const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return x >= 0 ? y : -y; }
+const Phi = z => 0.5 * (1 + erf(z / Math.SQRT2));
+function curveShares(kind, pool) { // share of films at each level in LEVELS order (5 down to ½)
+  if (kind === 'even') return LEVELS.map(() => 1);
+  if (kind === 'bell') {
+    const mu = S.res.mu, sd = S.res.sd;
+    return LEVELS.map(v => Phi(v === 5 ? Infinity : (v + 0.25 - mu) / sd) - Phi(v === 0.5 ? -Infinity : (v - 0.25 - mu) / sd));
+  }
+  return LEVELS.map(v => pool.filter(x => x === v).length);
+}
+function applyCurve(order, kind) { // order: ids, best first
+  const n = order.length, out = {};
+  const pool = order.map(id => S.films[id].old).filter(v => v != null);
+  if (kind === 'match' && pool.length < 2) kind = 'even';
+  const sh = curveShares(kind, pool), tot = sh.reduce((a, b) => a + b, 0);
+  let c = 0; const cum = sh.map(x => (c += x / tot));
+  order.forEach((id, i) => { const q = (i + 0.5) / n; let k = cum.findIndex(x => q <= x + 1e-12); if (k < 0) k = LEVELS.length - 1; out[id] = LEVELS[k]; });
   return out;
 }
 
@@ -453,7 +539,16 @@ function catScore(id) {
 }
 function catRatings() { const o = {}; Object.keys(S.cats.scores).forEach(id => { const s = catScore(id); if (s && S.films[id]) o[id] = s.stars; }); return o; }
 function defRatings() { const o = {}; Object.entries(S.defs.assigned).forEach(([id, v]) => { if (S.films[id]) o[id] = v; }); return o; }
-function ratingsFor(src) { return src === 'compare' ? cmpRatings() : src === 'defs' ? defRatings() : catRatings(); }
+function activeCurve(src) { const c = S.res.curve || 'match'; return src === 'compare' && c === 'none' ? 'match' : c; }
+function ratingsFor(src) {
+  const curve = activeCurve(src);
+  if (src === 'compare') return applyCurve(S.cmp.ranked, curve);
+  const base = src === 'defs' ? defRatings() : catRatings();
+  if (curve === 'none') return base;
+  const key = src === 'cats' ? id => catScore(id).raw : id => base[id];
+  const order = Object.keys(base).sort((a, b) => key(b) - key(a) || (S.films[b].old ?? -1) - (S.films[a].old ?? -1) || S.films[a].name.localeCompare(S.films[b].name));
+  return applyCurve(order, curve);
+}
 
 function commit() { save(); render(); }
 
@@ -469,6 +564,7 @@ function render() {
   const p = $('#panel');
   p.innerHTML = S.tab === 'compare' ? viewCompare() : S.tab === 'defs' ? viewDefs() : S.tab === 'cats' ? viewCats() : viewResults();
   renderKeyBox();
+  renderAccount();
   hydratePosters();
   if (S.tab === 'compare') prefetch(S.cmp.queue.slice(0, 3));
   else if (S.tab === 'defs') prefetch(S.defs.queue.slice(S.defs.i + 1, S.defs.i + 4));
@@ -589,7 +685,17 @@ function viewResults() {
   const mx = Math.max(1, ...binOld, ...binNew);
   const rows = ids.sort((a, b) => newR[b] - newR[a] || (S.cmp.ranked.indexOf(a) - S.cmp.ranked.indexOf(b)));
   const csv = buildCSV(newR);
-  const mapCtl = r.source === 'compare' ? `<label class="small">Turn the ranking into stars by <select id="mapSel"><option value="match" ${r.map === 'match' ? 'selected' : ''}>keeping my old spread of ratings</option><option value="even" ${r.map === 'even' ? 'selected' : ''}>spreading evenly over ½–5</option></select></label>` : '';
+  const cv = activeCurve(r.source);
+  const curveOpts = [...(r.source === 'compare' ? [] : [['none', 'nothing (keep the ratings as given)']]), ['match', 'my old spread of ratings'], ['even', 'an even spread over ½–5'], ['bell', 'a bell curve']];
+  const curveNote = cv === 'none' ? 'Ratings are exactly as you gave them.'
+    : 'Films keep their order. Only the stars are reassigned so the number of films at each rating follows this shape.'
+      + (r.source === 'defs' ? ' Films you gave the same rating are ordered by your old rating, so a curve can split them.' : '')
+      + (r.source === 'cats' ? ' Films are ordered by their unrounded weighted score.' : '');
+  const mapCtl = `<div class="box"><div class="row"><label class="small" for="curveSel">Fit the new ratings to</label><select id="curveSel">${curveOpts.map(([k, l]) => `<option value="${k}" ${cv === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    ${cv === 'bell' ? `<div class="slider"><span class="sname small">Centre</span><input type="range" id="muSl" min="1.5" max="4.5" step="0.25" value="${r.mu}" aria-label="Bell curve centre in stars"><span class="mono" id="muV">${r.mu}</span></div>
+    <div class="slider"><span class="sname small">Spread</span><input type="range" id="sdSl" min="0.4" max="2" step="0.1" value="${r.sd}" aria-label="Bell curve spread in stars"><span class="mono" id="sdV">${r.sd}</span></div>
+    <p class="small muted">Centre is the most common rating. Spread is the standard deviation in stars: about two thirds of films land within one spread of the centre.</p>` : ''}
+    <p class="small muted">${curveNote}</p></div>`;
   return head + `${mapCtl}
     <div class="stats">
       <div class="box stat"><span class="label">Rerated</span><b>${ids.length}</b></div>
@@ -654,6 +760,10 @@ document.addEventListener('click', async e => {
       $('#exportMsg').textContent = 'Downloaded.';
       return;
     }
+    case 'signIn': return signIn();
+    case 'signOut': clearTimeout(syncTimer); return fb.auth.signOut();
+    case 'useRemote': { const r = choice.remote; choice = null; syncMsg = 'Loaded your online copy.'; adopt(r); return renderAccount(); }
+    case 'useLocal': choice = null; return push();
     case 'keySave': {
       const val = ($('#tmdbKey')?.value || '').trim(); if (!val) return;
       TMDB_KEY = val; keyState = 'ok'; editingKey = false;
@@ -676,7 +786,9 @@ document.addEventListener('change', e => {
   if (t.id === 'defsUnrated') { S.defs.includeUnrated = t.checked; buildQueue('defs'); return commit(); }
   if (t.id === 'catsUnrated') { S.cats.includeUnrated = t.checked; buildQueue('cats'); S.cats.draft = null; return commit(); }
   if (t.id === 'whole') { S.defs.whole = t.checked; return commit(); }
-  if (t.id === 'mapSel') { S.res.map = t.value; return commit(); }
+  if (t.id === 'curveSel') { S.res.curve = t.value; return commit(); }
+  if (t.id === 'muSl') { S.res.mu = +t.value; return commit(); }
+  if (t.id === 'sdSl') { S.res.sd = +t.value; return commit(); }
   if (t.id === 'onlyChanged') { S.res.onlyChanged = t.checked; return commit(); }
   if (t.dataset.def) { S.defs.text[t.dataset.def] = t.value; return save(); }
   if (t.dataset.cat != null) {
@@ -688,6 +800,7 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('input', e => {
   const t = e.target;
+  if (t.id === 'muSl' || t.id === 'sdSl') { $('#' + t.id.slice(0, 2) + 'V').textContent = t.value; return; }
   if (t.dataset.slider && S.cats.draft) {
     S.cats.draft.v[t.dataset.slider] = +t.value;
     const i = t.id.split('-')[1]; $('#sv-' + i).textContent = t.value;
@@ -715,5 +828,6 @@ document.addEventListener('drop', e => { if (e.dataTransfer?.files?.length) hand
 /* ---------- Boot ---------- */
 if (!load()) freshState(sampleFilms(), true);
 render();
+initFirebase();
 })();
 </script>
